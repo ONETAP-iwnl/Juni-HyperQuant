@@ -97,6 +97,35 @@ namespace BitfinexConnectorLibrary
             return trade;
         }
 
+        public async Task<IEnumerable<Ticker>> GetTickersAsync(string pair)
+        {
+            var pairs = $"t{pair.ToUpper()}";
+            var url = $"https://api-pub.bitfinex.com/v2/ticker/{pairs}";
+            var option = new RestClientOptions(url);
+            var client = new RestClient(option);
+            var request = new RestRequest("");
+            request.AddHeader("accept", "application/json");
+
+            var response = await client.GetAsync(request);
+            var tickerData = JsonConvert.DeserializeObject<List<object>>(response.Content); // а вот он возвращает массив
+
+            var tiker = tickerData.Select(d => new Ticker 
+            {
+                Pair = pair,
+                Bid = Convert.ToDecimal(tickerData[0]),
+                BidSize = Convert.ToDecimal(tickerData[1]),
+                Ask = Convert.ToDecimal(tickerData[2]),
+                AskSize = Convert.ToDecimal(tickerData[3]),
+                DailyChange = Convert.ToDecimal(tickerData[4]),
+                DailyChangeRelative = Convert.ToDecimal(tickerData[5]),
+                LastPrice = Convert.ToDecimal(tickerData[6]),
+                Volume = Convert.ToDecimal(tickerData[7]),
+                High = Convert.ToDecimal(tickerData[8]),
+                Low = Convert.ToDecimal(tickerData[9])
+            });
+            return tiker;
+        }
+
         public void SubscribeCandles(string pair, int periodInSec, DateTimeOffset? from = null, DateTimeOffset? to = null, long? count = 0)
         {
             throw new NotImplementedException();

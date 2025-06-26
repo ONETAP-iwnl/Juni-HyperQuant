@@ -13,6 +13,7 @@ namespace BitfinexConnectorLibrary.Interfaces
 
         Task<IEnumerable<Trade>> GetNewTradesAsync(string pair, int maxCount);
         Task<IEnumerable<Candle>> GetCandleSeriesAsync(string pair, int periodInSec, DateTimeOffset? from, DateTimeOffset? to = null, long? count = 0);
+        Task<IEnumerable<Ticker>> GetTickersAsync(string pair); //нужен для ТЗ, т.к. там указанополучить информцию о тикере
 
         #endregion
 
