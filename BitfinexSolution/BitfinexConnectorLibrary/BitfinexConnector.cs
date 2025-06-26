@@ -50,8 +50,8 @@ namespace BitfinexConnectorLibrary
             {
                 throw new HttpRequestException($"ошибка:{response.StatusCode} - {response.Content}");
             }
-            var responsedata = JsonConvert.DeserializeObject<List<List<object>>>(response.Content); //еще битфинтех возвращает массив массивов, окак
-            var candle = responsedata.Select(d => new Candle
+            var responseData = JsonConvert.DeserializeObject<List<List<object>>>(response.Content); //еще битфинтех возвращает массив массивов, окак
+            var candle = responseData.Select(d => new Candle
             {
                 Pair = pair,
                 OpenTime = DateTimeOffset.FromUnixTimeMilliseconds(Convert.ToInt64(d[0])),
@@ -65,9 +65,36 @@ namespace BitfinexConnectorLibrary
             return candle;
         }
 
-        public Task<IEnumerable<Trade>> GetNewTradesAsync(string pair, int maxCount)
+        public async Task<IEnumerable<Trade>> GetNewTradesAsync(string pair, int maxCount)
         {
-            
+            var pairs = $"t{pair.ToUpper()}";
+            var url = $"https://api-pub.bitfinex.com/v2/trades/{pairs}/hist";
+            var options = new RestClientOptions(url);
+            var client = new RestClient(options);
+            var request = new RestRequest("");
+            request.AddHeader("accept", "application/json");
+            if(maxCount > 0)
+            {
+                request.AddQueryParameter("limit", maxCount.ToString());
+            }
+            request.AddQueryParameter("sort", "-1");
+            var response = await client.GetAsync(request);
+            var tradesData = JsonConvert.DeserializeObject<List<List<object>>> (response.Content);
+
+            var trade = tradesData.Select(d =>
+            {
+                var amount = Convert.ToDecimal(d[2]);
+                return new Trade
+                {
+                    Pair = pair,
+                    Id = d[0].ToString(),
+                    Time = DateTimeOffset.FromUnixTimeMilliseconds(Convert.ToInt64(d[1])),
+                    Amount = Math.Abs(amount),
+                    Side = amount > 0 ? "buy" : "sell", //если амаунт больше 0, то купилось, если меньше 0, то продалось - направление
+                    Price = Convert.ToDecimal(d[3])
+                };
+            });
+            return trade;
         }
 
         public void SubscribeCandles(string pair, int periodInSec, DateTimeOffset? from = null, DateTimeOffset? to = null, long? count = 0)
