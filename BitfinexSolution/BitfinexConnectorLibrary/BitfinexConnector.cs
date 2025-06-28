@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http.Json;
+using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -17,6 +18,7 @@ namespace BitfinexConnectorLibrary
         public event Action<Trade> NewBuyTrade;
         public event Action<Trade> NewSellTrade;
         public event Action<Candle> CandleSeriesProcessing;
+        private ClientWebSocket _ws;
         public async Task<IEnumerable<Candle>> GetCandleSeriesAsync(string pair, int periodInSec, DateTimeOffset? from, DateTimeOffset? to = null, long? count = 0)
         {
             var period = periodInSec switch
@@ -50,6 +52,7 @@ namespace BitfinexConnectorLibrary
             {
                 throw new HttpRequestException($"ошибка:{response.StatusCode} - {response.Content}");
             }
+
             var responseData = JsonConvert.DeserializeObject<List<List<object>>>(response.Content); //еще битфинтех возвращает массив массивов, окак
             var candle = responseData.Select(d => new Candle
             {
@@ -79,8 +82,12 @@ namespace BitfinexConnectorLibrary
             }
             request.AddQueryParameter("sort", "-1");
             var response = await client.GetAsync(request);
-            var tradesData = JsonConvert.DeserializeObject<List<List<object>>> (response.Content);
+            if (!response.IsSuccessful)
+            {
+                throw new HttpRequestException($"ошибка:{response.StatusCode} - {response.Content}");
+            }
 
+            var tradesData = JsonConvert.DeserializeObject<List<List<object>>> (response.Content);
             var trade = tradesData.Select(d =>
             {
                 var amount = Convert.ToDecimal(d[2]);
@@ -105,10 +112,13 @@ namespace BitfinexConnectorLibrary
             var client = new RestClient(option);
             var request = new RestRequest("");
             request.AddHeader("accept", "application/json");
-
             var response = await client.GetAsync(request);
-            var tickerData = JsonConvert.DeserializeObject<List<object>>(response.Content); // а вот он возвращает массив
+            if (!response.IsSuccessful)
+            {
+                throw new HttpRequestException($"ошибка:{response.StatusCode} - {response.Content}");
+            }
 
+            var tickerData = JsonConvert.DeserializeObject<List<object>>(response.Content); // а вот он возвращает массив
             var tiker = tickerData.Select(d => new Ticker 
             {
                 Pair = pair,
@@ -126,11 +136,39 @@ namespace BitfinexConnectorLibrary
             return tiker;
         }
 
-        public void SubscribeCandles(string pair, int periodInSec, DateTimeOffset? from = null, DateTimeOffset? to = null, long? count = 0)
+        public async void SubscribeCandles(string pair, int periodInSec, DateTimeOffset? from = null, DateTimeOffset? to = null, long? count = 0)
         {
-            throw new NotImplementedException();
+            Uri uri = new Uri("wss://api-pub.bitfinex.com/ws/2");
+            await _ws.ConnectAsync(uri, CancellationToken.None);
+            var period = periodInSec switch
+            {
+                60 => "1m",
+                300 => "5m",
+                900 => "15m",
+                _ => throw new ArgumentException("иного периода нет")
+            };
+            var key = $"trade:{period}:t{pair.ToUpper()}";
+            await SendJsonAsync(_ws, new
+            {
+                @event = "subscribe",
+                channel = "candles",
+                key = key
+            });
+            _ = Task.Run(() => ReceiveLoopAsync());
         }
 
+        private async Task ReceiveLoopAsync()
+        {
+            var buffer = new byte[8192];
+
+            while (_ws.State == WebSocketState.Open)
+            {
+                var result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+                var message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                Console.WriteLine(message);
+            }
+        }
+        
         public void SubscribeTrades(string pair, int maxCount = 100)
         {
             throw new NotImplementedException();
@@ -144,6 +182,14 @@ namespace BitfinexConnectorLibrary
         public void UnsubscribeTrades(string pair)
         {
             throw new NotImplementedException();
+        }
+
+        private async Task SendJsonAsync(ClientWebSocket ws, object message)
+        {
+            string json = JsonConvert.SerializeObject(message);
+            var bytes = Encoding.UTF8.GetBytes(json);
+            var buffer = new ArraySegment<byte>(bytes);
+            await ws.SendAsync(buffer, WebSocketMessageType.Text, endOfMessage: true, CancellationToken.None);
         }
     }
 }
